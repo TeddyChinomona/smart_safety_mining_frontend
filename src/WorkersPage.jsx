@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { COLORS } from "./colors";
-import { statusColor, statusBg } from "./statusHelpers";
+import { COLORS } from "./utils/colors";
+import { statusColor, statusBg } from "./utils/statusHelpers";
 import { StatusBadge, GaugeBar } from "./ui";
 
 // ─── WorkersPage ──────────────────────────────────────────────────────────────
+// workers contains only role:'worker' users — managers / admins / safety_officers
+// are excluded at the API level (/auth/worker/list/) and never appear here.
 
 export function WorkersPage({ workers }) {
   const [selected, setSelected] = useState(null);
@@ -12,13 +14,14 @@ export function WorkersPage({ workers }) {
   const filtered = filter === "all" ? workers : workers.filter((w) => w.status === filter);
   const w        = selected ? workers.find((x) => x.id === selected) : null;
 
-  const gasColor = w ? (w.gas  > 70  ? COLORS.danger : w.gas  > 40 ? COLORS.warning : COLORS.safe) : COLORS.safe;
-  const tempColor = w ? (w.temp > 40  ? COLORS.danger : w.temp > 32 ? COLORS.warning : COLORS.safe) : COLORS.safe;
-  const hrColor  = w ? (w.heartRate > 100 ? COLORS.danger : w.heartRate > 85 ? COLORS.warning : COLORS.safe) : COLORS.safe;
+  const gasColor  = w ? (w.gas       > 70  ? COLORS.danger : w.gas       > 40 ? COLORS.warning : COLORS.safe) : COLORS.safe;
+  const tempColor = w ? (w.temp      > 40  ? COLORS.danger : w.temp      > 32 ? COLORS.warning : COLORS.safe) : COLORS.safe;
+  const hrColor   = w ? (w.heartRate > 100 ? COLORS.danger : w.heartRate > 85 ? COLORS.warning : COLORS.safe) : COLORS.safe;
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 16 }}>
-      {/* Worker list */}
+
+      {/* ── Worker list ────────────────────────────────────────────────────── */}
       <div>
         {/* Filter bar */}
         <div style={{ display: "flex", gap: 8, marginBottom: 16 }}>
@@ -43,89 +46,97 @@ export function WorkersPage({ workers }) {
           ))}
         </div>
 
-        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {filtered.map((worker) => (
-            <div
-              key={worker.id}
-              onClick={() => setSelected(worker.id)}
-              style={{
-                background:   COLORS.surface,
-                border:       `1px solid ${selected === worker.id ? statusColor(worker.status) + "88" : COLORS.border}`,
-                borderRadius: 8,
-                padding:      "16px 20px",
-                cursor:       "pointer",
-                display:      "flex",
-                alignItems:   "center",
-                gap:          16,
-              }}
-            >
-              {/* Status dot */}
+        {filtered.length === 0 ? (
+          <div style={{ color: COLORS.textMuted, fontSize: 13, textAlign: "center", padding: "40px 0" }}>
+            {workers.length === 0
+              ? "No workers found — WebSocket data pending."
+              : `No workers with status "${filter}".`}
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {filtered.map((worker) => (
               <div
+                key={worker.id}
+                onClick={() => setSelected(worker.id)}
                 style={{
-                  width:        12,
-                  height:       12,
-                  borderRadius: "50%",
-                  background:   statusColor(worker.status),
-                  flexShrink:   0,
-                  boxShadow:    `0 0 8px ${statusColor(worker.status)}88`,
+                  background:   COLORS.surface,
+                  border:       `1px solid ${selected === worker.id ? statusColor(worker.status) + "88" : COLORS.border}`,
+                  borderRadius: 8,
+                  padding:      "16px 20px",
+                  cursor:       "pointer",
+                  display:      "flex",
+                  alignItems:   "center",
+                  gap:          16,
                 }}
-              />
+              >
+                {/* Status dot */}
+                <div
+                  style={{
+                    width:        12,
+                    height:       12,
+                    borderRadius: "50%",
+                    background:   statusColor(worker.status),
+                    flexShrink:   0,
+                    boxShadow:    `0 0 8px ${statusColor(worker.status)}88`,
+                  }}
+                />
 
-              <div style={{ flex: 1 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 15 }}>{worker.name}</span>
-                  <span style={{ color: COLORS.textSecondary, fontSize: 12 }}>{worker.id}</span>
-                  {!worker.helmet && worker.status !== "offline" && (
-                    <span
-                      style={{
-                        background:    COLORS.dangerDim,
-                        color:         COLORS.danger,
-                        fontSize:      10,
-                        fontWeight:    700,
-                        padding:       "1px 6px",
-                        borderRadius:  3,
-                        letterSpacing: "0.06em",
-                      }}
-                    >
-                      NO HELMET
-                    </span>
-                  )}
+                <div style={{ flex: 1 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 15 }}>{worker.name}</span>
+                    <span style={{ color: COLORS.textSecondary, fontSize: 12 }}>{worker.id}</span>
+                    {!worker.helmet && worker.status !== "offline" && (
+                      <span
+                        style={{
+                          background:    COLORS.dangerDim,
+                          color:         COLORS.danger,
+                          fontSize:      10,
+                          fontWeight:    700,
+                          padding:       "1px 6px",
+                          borderRadius:  3,
+                          letterSpacing: "0.06em",
+                        }}
+                      >
+                        NO HELMET
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ color: COLORS.textSecondary, fontSize: 12, marginTop: 3 }}>
+                    {worker.role} · {worker.zone}
+                  </div>
                 </div>
-                <div style={{ color: COLORS.textSecondary, fontSize: 12, marginTop: 3 }}>
-                  {worker.role} · {worker.zone}
-                </div>
+
+                {/* Mini sensor strip */}
+                {worker.status !== "offline" && (
+                  <div style={{ display: "flex", gap: 20, color: COLORS.textSecondary, fontSize: 12 }}>
+                    <div>
+                      <span style={{ color: COLORS.textMuted }}>GAS </span>
+                      <span style={{ color: worker.gas > 8 ? COLORS.danger : worker.gas > 4 ? COLORS.warning : COLORS.safe, fontWeight: 700 }}>
+                        {worker.gas} ppm
+                      </span>
+                    </div>
+                    <div>
+                      <span style={{ color: COLORS.textMuted }}>TEMP </span>
+                      <span style={{ color: worker.temp > 40 ? COLORS.danger : worker.temp > 32 ? COLORS.warning : COLORS.safe, fontWeight: 700 }}>
+                        {worker.temp}°C
+                      </span>
+                    </div>
+                    <div>
+                      <span style={{ color: COLORS.textMuted }}>HR </span>
+                      <span style={{ color: worker.heartRate > 120 ? COLORS.danger : worker.heartRate > 100 ? COLORS.warning : COLORS.safe, fontWeight: 700 }}>
+                        {worker.heartRate} bpm
+                      </span>
+                    </div>
+                  </div>
+                )}
+                <StatusBadge status={worker.status} size="md" />
               </div>
-
-              {/* Mini sensor strip */}
-              {worker.status !== "offline" && (
-                <div style={{ display: "flex", gap: 20, color: COLORS.textSecondary, fontSize: 12 }}>
-                  <div>
-                    <span style={{ color: worker.gas > 50 ? COLORS.danger : COLORS.textMuted }}>GAS </span>
-                    <span style={{ color: worker.gas > 50 ? COLORS.danger : worker.gas > 30 ? COLORS.warning : COLORS.safe, fontWeight: 700 }}>
-                      {worker.gas}ppm
-                    </span>
-                  </div>
-                  <div>
-                    <span style={{ color: COLORS.textMuted }}>TEMP </span>
-                    <span style={{ color: worker.temp > 40 ? COLORS.danger : worker.temp > 32 ? COLORS.warning : COLORS.safe, fontWeight: 700 }}>
-                      {worker.temp}°C
-                    </span>
-                  </div>
-                  <div>
-                    <span style={{ color: COLORS.textMuted }}>HR </span>
-                    <span style={{ color: worker.heartRate > 100 ? COLORS.danger : worker.heartRate > 85 ? COLORS.warning : COLORS.safe, fontWeight: 700 }}>
-                      {worker.heartRate}bpm
-                    </span>
-                  </div>
-                </div>
-              )}
-              <StatusBadge status={worker.status} size="md" />
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* Detail panel */}
+      {/* ── Detail panel ──────────────────────────────────────────────────── */}
       <div
         style={{
           background:   COLORS.surface,
@@ -170,13 +181,17 @@ export function WorkersPage({ workers }) {
 
             {/* Meta fields */}
             <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 20 }}>
-              {[["Worker ID", w.id], ["Zone", w.zone], ["Helmet", w.helmet ? "Worn ✓" : "⚠ Removed"]].map(([k, v]) => (
+              {[
+                ["Worker ID", w.id],
+                ["Zone",      w.zone],
+                ["Helmet",    w.helmet ? "Worn ✓" : "⚠ Removed"],
+              ].map(([k, v]) => (
                 <div key={k} style={{ display: "flex", justifyContent: "space-between" }}>
                   <span style={{ color: COLORS.textMuted, fontSize: 12 }}>{k}</span>
                   <span
                     style={{
-                      color:     k === "Helmet" && !w.helmet ? COLORS.danger : COLORS.textPrimary,
-                      fontSize:  12,
+                      color:      k === "Helmet" && !w.helmet ? COLORS.danger : COLORS.textPrimary,
+                      fontSize:   12,
                       fontWeight: 600,
                     }}
                   >
@@ -200,10 +215,9 @@ export function WorkersPage({ workers }) {
                 >
                   Live Sensor Readings
                 </div>
-                <GaugeBar label="Gas (CH₄)"    value={w.gas}       max={100} color={gasColor}  unit="ppm" />
-                <GaugeBar label="Temperature"   value={w.temp}      max={60}  color={tempColor} unit="°C"  />
-                <GaugeBar label="Heart Rate"    value={w.heartRate} max={150} color={hrColor}   unit=" bpm" />
-                <GaugeBar label="Humidity"      value={55}          max={100} color={COLORS.accent} unit="%" />
+                <GaugeBar label="Gas (CH₄)"   value={w.gas}       max={100} color={gasColor}  unit=" ppm" />
+                <GaugeBar label="Temperature"  value={w.temp}      max={60}  color={tempColor} unit="°C"  />
+                <GaugeBar label="Heart Rate"   value={w.heartRate} max={150} color={hrColor}   unit=" bpm" />
 
                 <div style={{ marginTop: 20 }}>
                   <StatusBadge status={w.status} size="md" />
@@ -240,7 +254,7 @@ export function WorkersPage({ workers }) {
                   textAlign:    "center",
                 }}
               >
-                Device offline: No sensor data
+                Device offline — no sensor data
               </div>
             )}
           </>

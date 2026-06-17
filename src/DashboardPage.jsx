@@ -1,4 +1,3 @@
-import { useState, useEffect } from "react";
 import { COLORS } from "./utils/colors";
 import { statusColor } from "./utils/statusHelpers";
 import { StatCard, StatusBadge } from "./ui";
@@ -10,18 +9,19 @@ export function DashboardPage({ alerts, workers, zones = [], onNavigate }) {
 
   const dangerZoneCount = zones.filter((z) => z.risk_level === "unsafe").length;
 
-  // Simulated live environmental averages (replace with real aggregates when available)
-  const [tick, setTick] = useState(0);
-  useEffect(() => {
-    const t = setInterval(() => setTick((p) => p + 1), 3000);
-    return () => clearInterval(t);
-  }, []);
+  // ── Real-time fleet averages from WebSocket sensor data ─────────────────────
+  const activeWorkers = workers.filter((w) => w.status !== "offline");
+  const fleetAvg = (key) =>
+    activeWorkers.length > 0
+      ? (activeWorkers.reduce((s, w) => s + (w[key] || 0), 0) / activeWorkers.length).toFixed(1)
+      : "—";
 
-  const liveGas  = (12 + Math.sin(tick * 0.4) * 3).toFixed(1);
-  const liveTemp = (28 + Math.cos(tick * 0.3) * 1.2).toFixed(1);
+  const avgGas  = fleetAvg("gas");
+  const avgTemp = fleetAvg("temp");
 
   return (
     <div>
+      {/* ── Emergency banner ────────────────────────────────────────────────── */}
       {dangerWorkers.length > 0 && (
         <div
           style={{
@@ -48,10 +48,15 @@ export function DashboardPage({ alerts, workers, zones = [], onNavigate }) {
           <button
             onClick={() => onNavigate("workers")}
             style={{
-              marginLeft: "auto",
-              background: COLORS.danger, border: "none",
-              color: "#fff", borderRadius: 4,
-              padding: "4px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+              marginLeft:   "auto",
+              background:   COLORS.danger,
+              border:       "none",
+              color:        "#fff",
+              borderRadius: 4,
+              padding:      "4px 12px",
+              fontSize:     12,
+              fontWeight:   700,
+              cursor:       "pointer",
             }}
           >
             View Workers
@@ -59,11 +64,11 @@ export function DashboardPage({ alerts, workers, zones = [], onNavigate }) {
         </div>
       )}
 
-      {/* Stat row */}
+      {/* ── Stat row ─────────────────────────────────────────────────────────── */}
       <div style={{ display: "flex", gap: 14, marginBottom: 20 }}>
         <StatCard
           label="Active Workers"
-          value={workers.filter((w) => w.status !== "offline").length}
+          value={activeWorkers.length}
           sub={`${offlineWorkers.length} offline`}
         />
         <StatCard
@@ -80,19 +85,21 @@ export function DashboardPage({ alerts, workers, zones = [], onNavigate }) {
         />
         <StatCard
           label="Avg. Gas Level"
-          value= "Use live"
-          sub="ppm CH₄ (safe: <50)"
-          color={parseFloat(liveGas) > 40 ? COLORS.warning : COLORS.safe}
+          value={avgGas !== "—" ? `${avgGas}` : "—"}
+          sub="ppm CH₄  (safe: <50)"
+          color={parseFloat(avgGas) > 40 ? COLORS.warning : COLORS.safe}
         />
         <StatCard
           label="Avg. Temp"
-          value="Use live"
-          sub="ambient (safe: <32)"
-          color={parseFloat(liveTemp) > 30 ? COLORS.warning : COLORS.safe}
+          value={avgTemp !== "—" ? `${avgTemp}°C` : "—"}
+          sub="ambient  (safe: <32°C)"
+          color={parseFloat(avgTemp) > 30 ? COLORS.warning : COLORS.safe}
         />
       </div>
 
+      {/* ── Two-column body ───────────────────────────────────────────────────── */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+
         {/* Worker status list */}
         <div
           style={{
@@ -112,7 +119,7 @@ export function DashboardPage({ alerts, workers, zones = [], onNavigate }) {
 
           {workers.length === 0 ? (
             <div style={{ color: COLORS.textMuted, fontSize: 13, textAlign: "center", padding: "30px 0" }}>
-              No workers online: WebSocket data pending
+              No workers online — WebSocket data pending
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>

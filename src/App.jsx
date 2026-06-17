@@ -26,37 +26,46 @@ export default function App() {
   const [appLoading, setAppLoading] = useState(true);
   const [dataReady,  setDataReady]  = useState(false);
 
-
+  // ── REST data ────────────────────────────────────────────────────────────────
+  // users = role:'worker' only → drives the Workers page display
   const [users,        setUsers]        = useState([]);
   const [rawAlerts,    setRawAlerts]    = useState([]);
   const [rawIncidents, setRawIncidents] = useState([]);
   const [zones,        setZones]        = useState([]);
 
-  
-  const [statusMap, setStatusMap] = useState({});   // WorkerStatus
-  const [sensorMap, setSensorMap] = useState({});   // Latest SensorEvent
+  // ── WebSocket data ───────────────────────────────────────────────────────────
+  const [statusMap, setStatusMap] = useState({});   // WorkerStatus  { userId → ws }
+  const [sensorMap, setSensorMap] = useState({});   // SensorEvent   { userId → ws }
 
-  
+  // ── User lookup map ──────────────────────────────────────────────────────────
+  // Built from ALL users when the logged-in role allows it (admin/manager/officer),
+  // falls back to workers-only list for worker logins.  Stored in a ref so
+  // transform functions always see the latest version without triggering re-renders.
   const userMapRef = useRef({});
 
-  
+  // ── Derived state ────────────────────────────────────────────────────────────
   const alerts    = rawAlerts.map((a) => transformAlert(a, userMapRef.current));
   const incidents = rawIncidents.map((i) => transformIncident(i, userMapRef.current));
+  // workers only contains role:'worker' users — managers/admins/officers are excluded
   const workers   = buildWorkers(users, statusMap, sensorMap, zones);
 
   const newAlertCount = alerts.filter((a) => a.status === 'new').length;
 
-  
+  // ── Initial data load ────────────────────────────────────────────────────────
   const loadData = useCallback(async () => {
     try {
-      const [usersData, alertsData, incidentsData, zonesData] = await Promise.all([
-        authService.getUsers(),
+      const [workersData, allUsersData, alertsData, incidentsData, zonesData] = await Promise.all([
+        authService.getUsers(),          // role:'worker' only — Workers page
+        authService.getAllUsers()         // all roles — complete userMap
+          .catch(() => null),            // workers get 403 here; null triggers fallback below
         apiService.getAlerts(),
         apiService.getIncidents(),
         apiService.getZones(),
       ]);
-      userMapRef.current = buildUserMap(usersData);
-      setUsers(usersData);
+
+      // Prefer the full user list; fall back to workers-only so transforms still work
+      userMapRef.current = buildUserMap(allUsersData ?? workersData);
+      setUsers(workersData);
       setRawAlerts(alertsData);
       setRawIncidents(incidentsData);
       setZones(zonesData);
@@ -67,7 +76,7 @@ export default function App() {
     }
   }, []);
 
-  
+  // ── WebSocket handlers ───────────────────────────────────────────────────────
   const handleSensor = useCallback((msg) => {
     if (msg.type === 'initial_data') {
       const map = {};
@@ -92,7 +101,7 @@ export default function App() {
     }
   }, []);
 
-  
+  // ── Bootstrap: restore session on page load ──────────────────────────────────
   useEffect(() => {
     if (authService.isAuthenticated()) {
       authService.getProfile()
@@ -104,7 +113,7 @@ export default function App() {
     }
   }, []);
 
-  
+  // ── Global logout event (fired by API interceptor or WS service) ─────────────
   useEffect(() => {
     const handler = () => {
       setUser(null);
@@ -114,7 +123,7 @@ export default function App() {
     return () => window.removeEventListener('auth:logout', handler);
   }, []);
 
-  
+  // ── Start data + WS when authenticated ──────────────────────────────────────
   useEffect(() => {
     if (!user) return;
     loadData();
@@ -122,7 +131,7 @@ export default function App() {
     return () => wsService.disconnect();
   }, [user, loadData, handleSensor, handleWorker]);
 
-  
+  // ── Auth actions ─────────────────────────────────────────────────────────────
   const handleLogin = async (username, password) => {
     try {
       await authService.login(username, password);
@@ -144,7 +153,7 @@ export default function App() {
     userMapRef.current = {};
   };
 
-  
+  // ── Alert handlers ────────────────────────────────────────────────────────────
   const handleAlertStatus = async (id, newStatus) => {
     try {
       await apiService.updateAlert(id, { status: newStatus });
@@ -156,7 +165,7 @@ export default function App() {
     }
   };
 
-  
+  // ── Incident handlers ─────────────────────────────────────────────────────────
   const handleIncidentCreate = async (formData) => {
     try {
       const created = await apiService.createIncident({
@@ -186,7 +195,7 @@ export default function App() {
     }
   };
 
-  
+  // ── Render ────────────────────────────────────────────────────────────────────
   if (appLoading) {
     return (
       <div style={{
@@ -202,7 +211,6 @@ export default function App() {
   if (!user) return <LoginPage onLogin={handleLogin} />;
 
   const pages = {
-    
     dashboard: (
       <DashboardPage
         alerts={alerts}
@@ -211,9 +219,9 @@ export default function App() {
         onNavigate={setPage}
       />
     ),
-    workers:   <WorkersPage workers={workers} />,
-    map:       <ZoneMapPage workers={workers} zones={zones} />,
-    alerts:    <AlertsPage  alerts={alerts}   onUpdateStatus={handleAlertStatus} />,
+    workers:   <WorkersPage   workers={workers} />,
+    map:       <ZoneMapPage   workers={workers} zones={zones} />,
+    alerts:    <AlertsPage    alerts={alerts}   onUpdateStatus={handleAlertStatus} />,
     incidents: (
       <IncidentsPage
         incidents={incidents}
@@ -223,7 +231,7 @@ export default function App() {
       />
     ),
     analytics: <AnalyticsPage workers={workers} />,
-    reports:   <ReportsPage alerts={alerts} incidents={incidents} zones={zones} workers={workers} />,
+    reports:   <ReportsPage   alerts={alerts} incidents={incidents} zones={zones} workers={workers} />,
   };
 
   return (

@@ -1,4 +1,4 @@
-import { WS_URL, BASE_URL } from '../api';
+import { WS_URL, BASE_URL } from './api';  // was '../api' — both files live in src/services/
 import axios from 'axios';
 
 // Manages both WebSocket connections with JWT auth and auto-reconnect.
@@ -88,7 +88,6 @@ class WsService {
       };
     } catch (err) {
       console.warn(`WS [${key}] connect error:`, err.message);
-      // Schedule a retry so a transient error doesn't kill the connection permanently
       this._timers[key] = setTimeout(
         () => this._open(key, path, this._callbacks[key]),
         4000,

@@ -1,17 +1,17 @@
-import api from '../api';
+import api from './api';   // was '../api' — both files live in src/services/
 
 export const apiService = {
   // ─── Zones ──────────────────────────────────────────────────────────────────
   getZones: () => api.get('/api/zones/').then((r) => r.data),
 
   // ─── Alerts ─────────────────────────────────────────────────────────────────
-  getAlerts:   ()           => api.get('/api/alerts/').then((r) => r.data),
-  updateAlert: (id, payload) => api.patch(`/api/alerts/${id}/`, payload).then((r) => r.data),
+  getAlerts:   ()                => api.get('/api/alerts/').then((r) => r.data),
+  updateAlert: (id, payload)     => api.patch(`/api/alerts/${id}/`, payload).then((r) => r.data),
 
   // ─── Incidents ──────────────────────────────────────────────────────────────
-  getIncidents:    ()              => api.get('/api/incidents/').then((r) => r.data),
-  createIncident:  (payload)       => api.post('/api/incidents/', payload).then((r) => r.data),
-  updateIncident:  (id, payload)   => api.patch(`/api/incidents/${id}/`, payload).then((r) => r.data),
+  getIncidents:   ()             => api.get('/api/incidents/').then((r) => r.data),
+  createIncident: (payload)      => api.post('/api/incidents/', payload).then((r) => r.data),
+  updateIncident: (id, payload)  => api.patch(`/api/incidents/${id}/`, payload).then((r) => r.data),
 
   // ─── Analytics ──────────────────────────────────────────────────────────────
   getSummary: () => api.get('/api/analytics/summary/').then((r) => r.data),

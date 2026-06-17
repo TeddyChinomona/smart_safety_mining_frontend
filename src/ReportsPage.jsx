@@ -1,14 +1,14 @@
 import { useState, useEffect, useMemo } from "react";
-import { COLORS } from "./colors";
+import { COLORS } from "./utils/colors";
 import { apiService } from "./services/apiService";
 import { StatCard } from "./ui";
 
 const MAX_BAR = 8;
 
-/** Return the last `n` calendar days as { day: 'Mon', start, end } objects. */
+/** Return the last `n` calendar days as { day, start, end } objects. */
 function lastNDays(n) {
   return Array.from({ length: n }, (_, i) => {
-    const d   = new Date();
+    const d = new Date();
     d.setDate(d.getDate() - (n - 1 - i));
     const start = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
     return {
@@ -19,8 +19,7 @@ function lastNDays(n) {
   });
 }
 
-const riskScore = { safe: 10, warning: 50, unsafe: 90 };
-
+const riskScore   = { safe: 10, warning: 50, unsafe: 90 };
 const workerScore = (status) =>
   ({ danger: 90, warning: 55, safe: 15, offline: 5 }[status] ?? 5);
 
@@ -46,7 +45,6 @@ export function ReportsPage({ alerts = [], incidents = [], zones = [], workers =
     }
   };
 
- 
   /** Alerts grouped by day for the last 7 days */
   const alertsByDay = useMemo(() => {
     const days = lastNDays(7);
@@ -63,10 +61,9 @@ export function ReportsPage({ alerts = [], incidents = [], zones = [], workers =
   /** Risk score per zone derived from zone.risk_level */
   const riskByZone = useMemo(
     () =>
-      zones.map((z) => ({
-        zone:  z.name,
-        score: riskScore[z.risk_level] ?? 10,
-      })).sort((a, b) => b.score - a.score),
+      zones
+        .map((z) => ({ zone: z.name, score: riskScore[z.risk_level] ?? 10 }))
+        .sort((a, b) => b.score - a.score),
     [zones],
   );
 
@@ -81,12 +78,11 @@ export function ReportsPage({ alerts = [], incidents = [], zones = [], workers =
   );
 
   // ── Summary counts ──────────────────────────────────────────────────────────
-  const totalAlerts   = summary?.total_alerts    ?? alerts.length;
-  const openIncidents = summary?.open_incidents  ?? incidents.filter((i) => i.status === "open").length;
+  const totalAlerts   = summary?.total_alerts   ?? alerts.length;
+  const openIncidents = summary?.open_incidents ?? incidents.filter((i) => i.status === "open").length;
   const dangerAlerts  = alerts.filter((a) => a.severity === "danger").length;
   const unsafeZones   = zones.filter((z) => z.risk_level === "unsafe").length;
 
-  // ── Render ──────────────────────────────────────────────────────────────────
   return (
     <div>
       {/* Header */}
@@ -97,10 +93,12 @@ export function ReportsPage({ alerts = [], incidents = [], zones = [], workers =
           disabled={exporting}
           style={{
             background: exporting ? COLORS.border : COLORS.surface,
-            border: `1px solid ${COLORS.border}`, borderRadius: 6,
-            padding: "8px 18px",
-            color: exporting ? COLORS.textMuted : COLORS.textSecondary,
-            fontSize: 13, cursor: exporting ? "not-allowed" : "pointer",
+            border:     `1px solid ${COLORS.border}`,
+            borderRadius: 6,
+            padding:    "8px 18px",
+            color:      exporting ? COLORS.textMuted : COLORS.textSecondary,
+            fontSize:   13,
+            cursor:     exporting ? "not-allowed" : "pointer",
           }}
         >
           {exporting ? "Exporting…" : "↓ Export CSV"}
@@ -113,22 +111,27 @@ export function ReportsPage({ alerts = [], incidents = [], zones = [], workers =
           borderRadius: 6, padding: "8px 14px",
           color: COLORS.warning, fontSize: 12, marginBottom: 16,
         }}>
-          Could not reach analytics endpoint showing live counts from this session.
+          Could not reach analytics endpoint — showing live counts from this session.
         </div>
       )}
 
       {/* Summary stat row */}
       <div style={{ display: "flex", gap: 14, marginBottom: 20 }}>
-        <StatCard label="Total Alerts"    value={totalAlerts}   color={COLORS.danger}  sub={`${dangerAlerts} danger`} />
-        <StatCard label="Open Incidents"  value={openIncidents} color={COLORS.warning} sub="requiring action" />
-        <StatCard label="Unsafe Zones"    value={unsafeZones}   color={COLORS.danger}  sub={`of ${zones.length} configured`} />
-        <StatCard label="Danger Workers"  value={workers.filter((w) => w.status === "danger").length} color={COLORS.warning} sub="AI-ranked" />
+        <StatCard label="Total Alerts"   value={totalAlerts}   color={COLORS.danger}  sub={`${dangerAlerts} danger`} />
+        <StatCard label="Open Incidents" value={openIncidents} color={COLORS.warning} sub="requiring action" />
+        <StatCard label="Unsafe Zones"   value={unsafeZones}   color={COLORS.danger}  sub={`of ${zones.length} configured`} />
+        <StatCard
+          label="Danger Workers"
+          value={workers.filter((w) => w.status === "danger").length}
+          color={COLORS.warning}
+          sub="AI-ranked"
+        />
       </div>
 
       {/* Charts row */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16, marginBottom: 16 }}>
 
-        {/* Alerts by day — bar chart */}
+        {/* Alerts by day */}
         <div style={{ background: COLORS.surface, border: `1px solid ${COLORS.border}`, borderRadius: 8, padding: 20 }}>
           <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 14, marginBottom: 20 }}>
             Alerts by Day (Last 7 Days)
@@ -216,7 +219,7 @@ export function ReportsPage({ alerts = [], incidents = [], zones = [], workers =
 
         {workerRisk.length === 0 ? (
           <div style={{ color: COLORS.textMuted, fontSize: 12, textAlign: "center", padding: "20px 0" }}>
-            No worker data WebSocket data pending
+            No worker data — WebSocket data pending
           </div>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>
@@ -226,8 +229,10 @@ export function ReportsPage({ alerts = [], incidents = [], zones = [], workers =
                 <div
                   key={w.name}
                   style={{
-                    background: COLORS.bg, border: `1px solid ${color}33`,
-                    borderRadius: 6, padding: "12px 16px",
+                    background:   COLORS.bg,
+                    border:       `1px solid ${color}33`,
+                    borderRadius: 6,
+                    padding:      "12px 16px",
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>

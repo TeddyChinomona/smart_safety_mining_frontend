@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { COLORS } from "./colors";
-import { statusColor, statusBg } from "./statusHelpers";
+import { COLORS } from "./utils/colors";
+import { statusColor, statusBg } from "./utils/statusHelpers";
 import { StatusBadge } from "./ui";
 
 // ─── ZoneMapPage ──────────────────────────────────────────────────────────────
@@ -24,7 +24,6 @@ function buildLayout(apiZones) {
   );
   if (valid.length === 0) return null;
 
-  // Collect every coordinate point across all zones to find the global bounds
   const allPts = valid.flatMap((z) => z.coordinates);
   const xs = allPts.map((p) => p[0]);
   const ys = allPts.map((p) => p[1]);
@@ -33,17 +32,16 @@ function buildLayout(apiZones) {
   const rangeX = (maxX - minX) || 1;
   const rangeY = (maxY - minY) || 1;
 
-  const PAD = 8, AREA = 84; // 8 % padding on every side inside the 100×100 viewBox
+  const PAD = 8, AREA = 84;
 
-  // Convert any real-world [x, y] point → SVG [nx, ny]
   const normPt = (x, y) => [
     PAD + ((x - minX) / rangeX) * AREA,
     PAD + ((y - minY) / rangeY) * AREA,
   ];
 
   const svgZones = valid.map((z) => {
-    const cxs  = z.coordinates.map((p) => p[0]);
-    const cys  = z.coordinates.map((p) => p[1]);
+    const cxs   = z.coordinates.map((p) => p[0]);
+    const cys   = z.coordinates.map((p) => p[1]);
     const zMinX = Math.min(...cxs), zMaxX = Math.max(...cxs);
     const zMinY = Math.min(...cys), zMaxY = Math.max(...cys);
     const [nx,  ny]  = normPt(zMinX, zMinY);
@@ -51,9 +49,9 @@ function buildLayout(apiZones) {
     return {
       id:   z.id,
       name: z.name,
-      risk: z.risk_level,          // 'safe' | 'warning' | 'unsafe'
+      risk: z.risk_level,
       x: nx, y: ny,
-      w: Math.max(nx2 - nx, 2),    // minimum 2 units wide so label is visible
+      w: Math.max(nx2 - nx, 2),
       h: Math.max(ny2 - ny, 2),
     };
   });
@@ -69,8 +67,7 @@ export function ZoneMapPage({ workers, zones = [] }) {
 
   const layout = buildLayout(zones);
 
-  const workersInZone = (zoneName) =>
-    workers.filter((w) => w.zone === zoneName);
+  const workersInZone = (zoneName) => workers.filter((w) => w.zone === zoneName);
 
   return (
     <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 16 }}>
@@ -109,7 +106,7 @@ export function ZoneMapPage({ workers, zones = [] }) {
               </g>
             ))}
 
-            {/* ── No-coordinates fallback ─────────────────────────────── */}
+            {/* No-coordinates fallback */}
             {!layout && (
               <text
                 x="50" y="50" textAnchor="middle" dominantBaseline="middle"
@@ -119,7 +116,7 @@ export function ZoneMapPage({ workers, zones = [] }) {
               </text>
             )}
 
-            {/* ── Zone rectangles (derived from polygon bounding boxes) ── */}
+            {/* Zone rectangles */}
             {layout && layout.svgZones.map((z) => {
               const c      = riskColor(z.risk);
               const isHov  = hoveredZone  === z.id;
@@ -141,14 +138,17 @@ export function ZoneMapPage({ workers, zones = [] }) {
                     strokeDasharray={isDash ? "2,1" : "none"}
                     rx="1"
                   />
-                  <text x={z.x + z.w / 2} y={z.y + z.h / 2 - 2} textAnchor="middle" fill={c} fontSize="3.5" fontWeight="700">
+                  <text
+                    x={z.x + z.w / 2} y={z.y + z.h / 2 - 2}
+                    textAnchor="middle" fill={c} fontSize="3.5" fontWeight="700"
+                  >
                     {z.name}
                   </text>
                 </g>
               );
             })}
 
-            {/* ── Worker dots (only when location data is available) ───── */}
+            {/* Worker dots */}
             {layout && workers.map((w) => {
               if (w.locationX == null || w.locationY == null) return null;
               const [cx, cy] = layout.normPt(w.locationX, w.locationY);
@@ -202,19 +202,21 @@ export function ZoneMapPage({ workers, zones = [] }) {
             </div>
           ) : (
             zones.map((z) => {
-              const ww = workersInZone(z.name);
-              const c  = riskColor(z.risk_level);
+              const ww    = workersInZone(z.name);
+              const c     = riskColor(z.risk_level);
               const isSel = selectedZone === z.id;
               return (
                 <div
                   key={z.id}
                   onClick={() => setSelectedZone(isSel ? null : z.id)}
                   style={{
-                    padding: "10px 12px",
-                    background:  isSel ? statusBg(z.risk_level === "unsafe" ? "danger" : z.risk_level) : COLORS.bg,
-                    borderRadius: 6, marginBottom: 6, cursor: "pointer",
-                    border:      `1px solid ${isSel ? c + "66" : COLORS.border}`,
-                    borderLeft:  `3px solid ${c}`,
+                    padding:      "10px 12px",
+                    background:   isSel ? statusBg(z.risk_level === "unsafe" ? "danger" : z.risk_level) : COLORS.bg,
+                    borderRadius: 6,
+                    marginBottom: 6,
+                    cursor:       "pointer",
+                    border:       `1px solid ${isSel ? c + "66" : COLORS.border}`,
+                    borderLeft:   `3px solid ${c}`,
                   }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
@@ -225,7 +227,6 @@ export function ZoneMapPage({ workers, zones = [] }) {
                     {ww.length} worker{ww.length !== 1 ? "s" : ""} in zone
                   </div>
 
-                  {/* Workers in zone (expanded) */}
                   {isSel && ww.length > 0 && (
                     <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
                       {ww.map((worker) => (
