@@ -1,8 +1,19 @@
-import api from './api';   // was '../api' — both files live in src/services/
+import api from './api';   // was '../api': both files live in src/services/
 
 export const apiService = {
   // ─── Zones ──────────────────────────────────────────────────────────────────
-  getZones: () => api.get('/api/zones/').then((r) => r.data),
+  getZones:   ()         => api.get('/api/zones/').then((r) => r.data),
+  createZone: (payload)  => api.post('/api/zones/', payload).then((r) => r.data),
+
+  // ─── GPS Sensors (Device 1) ──────────────────────────────────────────────────
+  // NOTE: requires Admin / Manager / Safety Officer: workers receive 403.
+  // App.jsx catches the error and gracefully falls back to an empty list.
+  getGpsSensors: () => api.get('/api/gps-sensors/').then((r) => r.data),
+
+  // ─── Mining Sessions ─────────────────────────────────────────────────────────
+  getActiveSessions: ()         => api.get('/api/mining-sessions/active/').then((r) => r.data),
+  startSession:      (payload)  => api.post('/api/mining-sessions/', payload).then((r) => r.data),
+  endSession:        (id)       => api.post(`/api/mining-sessions/${id}/end/`).then((r) => r.data),
 
   // ─── Alerts ─────────────────────────────────────────────────────────────────
   getAlerts:   ()                => api.get('/api/alerts/').then((r) => r.data),

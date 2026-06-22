@@ -27,12 +27,11 @@ export const transformAlert = (a, userMap) => ({
   type:      a.alert_type,
   worker:    userMap[a.worker] || `User ${a.worker}`,
   workerId:  String(a.worker),
-  zone:      '—',
+  zone:      '',
   severity:  normSeverity(a.severity),
   status:    a.status,                          // new / acknowledged / resolved
   time:      fmtTimestamp(a.timestamp),
   message:   a.alert_type,
-  // Unix ms — used for charts that group alerts by date
   timestamp: a.timestamp ? new Date(a.timestamp).getTime() : 0,
 });
 
@@ -42,7 +41,7 @@ export const transformIncident = (i, userMap) => ({
   id:           String(i.id),
   title:        i.title,
   worker:       userMap[i.reporter] || `User ${i.reporter}`,
-  zone:         '—',
+  zone:         '',
   status:       normIncidentStatus(i.status),
   date:         (i.timestamp || '').slice(0, 10),
   description:  i.description,
@@ -50,29 +49,39 @@ export const transformIncident = (i, userMap) => ({
 });
 
 // ─── Workers builder ──────────────────────────────────────────────────────────
-// Combines three sources:
-//   users     → /auth/user/list/   (names, system roles)
-//   statusMap → WorkerStatus WS    (online status, current zone FK)
-//   sensorMap → SensorEvent WS     (gas, temp, heart rate, indoor position…)
-//   zones     → /api/zones/        (needed to resolve zone FK → name)
-export const buildWorkers = (users, statusMap, sensorMap, zones) =>
+// Combines four sources:
+//   users     → /auth/worker/list/   (names, system roles)
+//   statusMap → WorkerStatus WS      (online status, current zone FK)
+//   sensorMap → SensorEvent WS       (gas, temp, heart rate, nearest GPS sensor…)
+//   zones     → /api/zones/          (resolve zone FK → name)
+//   gpsMap    → /api/gps-sensors/    (id → GPSSensor; drives worker dot positions)
+//
+// Worker position logic (new GPS/BLE architecture):
+//   The BLE wearable (Device 2) reports which GPS sensor (Device 1) it sees
+//   nearest, stored as nearest_gps_sensor (DB PK integer in the serialized event).
+//   We look that sensor up in gpsMap and use its last_longitude / last_latitude
+//   as the worker's approximate position.  Zone.coordinates are also stored as
+//   [lon, lat] = [x, y], so both spaces are consistent for ZoneMapPage.
+export const buildWorkers = (users, statusMap, sensorMap, zones, gpsMap = {}) =>
   users.map((u) => {
     const st   = statusMap[u.id] || {};
     const se   = sensorMap[u.id] || {};
     const zone = zones.find((z) => z.id === st.current_zone);
+
+    // nearest_gps_sensor is the DB integer PK of the GPSSensor record
+    const gps = gpsMap[se.nearest_gps_sensor];
+
     return {
       id:        String(u.id),
       name:      u.username,
       role:      u.role.replace(/_/g, ' '),
-      zone:      zone?.name || '—',
+      zone:      zone?.name || '',
       status:    st.status  || 'offline',
       helmet:    se.helmet_worn  ?? true,
       heartRate: se.heart_rate   ?? 0,
       gas:       se.gas_level    ?? 0,
       temp:      se.temperature  ?? 0,
-      // Indoor triangulated coordinates (same space as Zone.coordinates)
-      // Used for the SVG zone map.  null = no position fix yet.
-      locationX: se.location_x   ?? null,
-      locationY: se.location_y   ?? null,
+      locationX: gps?.last_longitude ?? null,
+      locationY: gps?.last_latitude  ?? null,
     };
   });

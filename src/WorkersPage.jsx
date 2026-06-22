@@ -4,8 +4,6 @@ import { statusColor, statusBg } from "./utils/statusHelpers";
 import { StatusBadge, GaugeBar } from "./ui";
 
 // ─── WorkersPage ──────────────────────────────────────────────────────────────
-// workers contains only role:'worker' users — managers / admins / safety_officers
-// are excluded at the API level (/auth/worker/list/) and never appear here.
 
 export function WorkersPage({ workers }) {
   const [selected, setSelected] = useState(null);
@@ -49,7 +47,7 @@ export function WorkersPage({ workers }) {
         {filtered.length === 0 ? (
           <div style={{ color: COLORS.textMuted, fontSize: 13, textAlign: "center", padding: "40px 0" }}>
             {workers.length === 0
-              ? "No workers found — WebSocket data pending."
+              ? "No workers found: WebSocket data pending."
               : `No workers with status "${filter}".`}
           </div>
         ) : (
@@ -254,7 +252,7 @@ export function WorkersPage({ workers }) {
                   textAlign:    "center",
                 }}
               >
-                Device offline — no sensor data
+                Device offline: no sensor data
               </div>
             )}
           </>

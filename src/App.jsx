@@ -27,48 +27,57 @@ export default function App() {
   const [dataReady,  setDataReady]  = useState(false);
 
   // ── REST data ────────────────────────────────────────────────────────────────
-  // users = role:'worker' only → drives the Workers page display
   const [users,        setUsers]        = useState([]);
   const [rawAlerts,    setRawAlerts]    = useState([]);
   const [rawIncidents, setRawIncidents] = useState([]);
   const [zones,        setZones]        = useState([]);
+  const [sessions,     setSessions]     = useState([]); 
+  const [gpsSensors,   setGpsSensors]   = useState([]);
 
-  // ── WebSocket data ───────────────────────────────────────────────────────────
-  const [statusMap, setStatusMap] = useState({});   // WorkerStatus  { userId → ws }
-  const [sensorMap, setSensorMap] = useState({});   // SensorEvent   { userId → ws }
+  const [statusMap, setStatusMap] = useState({});
+  const [sensorMap, setSensorMap] = useState({});
 
-  // ── User lookup map ──────────────────────────────────────────────────────────
-  // Built from ALL users when the logged-in role allows it (admin/manager/officer),
-  // falls back to workers-only list for worker logins.  Stored in a ref so
-  // transform functions always see the latest version without triggering re-renders.
+  
   const userMapRef = useRef({});
+  const gpsMapRef  = useRef({});
 
-  // ── Derived state ────────────────────────────────────────────────────────────
   const alerts    = rawAlerts.map((a) => transformAlert(a, userMapRef.current));
   const incidents = rawIncidents.map((i) => transformIncident(i, userMapRef.current));
-  // workers only contains role:'worker' users — managers/admins/officers are excluded
-  const workers   = buildWorkers(users, statusMap, sensorMap, zones);
+  const workers   = buildWorkers(users, statusMap, sensorMap, zones, gpsMapRef.current);
 
   const newAlertCount = alerts.filter((a) => a.status === 'new').length;
 
-  // ── Initial data load ────────────────────────────────────────────────────────
+  // ── Initial data load
   const loadData = useCallback(async () => {
     try {
-      const [workersData, allUsersData, alertsData, incidentsData, zonesData] = await Promise.all([
-        authService.getUsers(),          // role:'worker' only — Workers page
-        authService.getAllUsers()         // all roles — complete userMap
-          .catch(() => null),            // workers get 403 here; null triggers fallback below
+      const [
+        workersData,
+        allUsersData,
+        alertsData,
+        incidentsData,
+        zonesData,
+        sessionsData,
+        gpsSensorsData,
+      ] = await Promise.all([
+        authService.getUsers(),
+        authService.getAllUsers().catch(() => null),
         apiService.getAlerts(),
         apiService.getIncidents(),
         apiService.getZones(),
+        apiService.getActiveSessions().catch(() => []),
+        // GPS sensors: 403 for workers: fall back gracefully to empty list
+        apiService.getGpsSensors().catch(() => []),
       ]);
 
-      // Prefer the full user list; fall back to workers-only so transforms still work
       userMapRef.current = buildUserMap(allUsersData ?? workersData);
+      gpsMapRef.current  = Object.fromEntries(gpsSensorsData.map((g) => [g.id, g]));
+
       setUsers(workersData);
       setRawAlerts(alertsData);
       setRawIncidents(incidentsData);
       setZones(zonesData);
+      setSessions(sessionsData);
+      setGpsSensors(gpsSensorsData);
     } catch (e) {
       console.error('Initial data load failed:', e);
     } finally {
@@ -76,7 +85,7 @@ export default function App() {
     }
   }, []);
 
-  // ── WebSocket handlers ───────────────────────────────────────────────────────
+  // WebSocket handlers
   const handleSensor = useCallback((msg) => {
     if (msg.type === 'initial_data') {
       const map = {};
@@ -101,7 +110,17 @@ export default function App() {
     }
   }, []);
 
-  // ── Bootstrap: restore session on page load ──────────────────────────────────
+  
+  const handleZone = useCallback((msg) => {
+    if (msg.type === 'initial_data') {
+      setZones(msg.data);
+    } else if (msg.type === 'zone_update') {
+      setZones((prev) =>
+        prev.map((z) => (z.id === msg.data.id ? msg.data : z))
+      );
+    }
+  }, []);
+
   useEffect(() => {
     if (authService.isAuthenticated()) {
       authService.getProfile()
@@ -113,7 +132,6 @@ export default function App() {
     }
   }, []);
 
-  // ── Global logout event (fired by API interceptor or WS service) ─────────────
   useEffect(() => {
     const handler = () => {
       setUser(null);
@@ -123,13 +141,12 @@ export default function App() {
     return () => window.removeEventListener('auth:logout', handler);
   }, []);
 
-  // ── Start data + WS when authenticated ──────────────────────────────────────
   useEffect(() => {
     if (!user) return;
     loadData();
-    wsService.connect(handleSensor, handleWorker);
+    wsService.connect(handleSensor, handleWorker, handleZone);
     return () => wsService.disconnect();
-  }, [user, loadData, handleSensor, handleWorker]);
+  }, [user, loadData, handleSensor, handleWorker, handleZone]);
 
   // ── Auth actions ─────────────────────────────────────────────────────────────
   const handleLogin = async (username, password) => {
@@ -148,12 +165,14 @@ export default function App() {
     await authService.logout();
     setUser(null);
     setUsers([]); setRawAlerts([]); setRawIncidents([]); setZones([]);
+    setSessions([]); setGpsSensors([]);
     setStatusMap({}); setSensorMap({});
     setDataReady(false);
     userMapRef.current = {};
+    gpsMapRef.current  = {};
   };
 
-  // ── Alert handlers ────────────────────────────────────────────────────────────
+  
   const handleAlertStatus = async (id, newStatus) => {
     try {
       await apiService.updateAlert(id, { status: newStatus });
@@ -165,7 +184,7 @@ export default function App() {
     }
   };
 
-  // ── Incident handlers ─────────────────────────────────────────────────────────
+  
   const handleIncidentCreate = async (formData) => {
     try {
       const created = await apiService.createIncident({
@@ -195,7 +214,43 @@ export default function App() {
     }
   };
 
-  // ── Render ────────────────────────────────────────────────────────────────────
+  
+  const handleStartSession = async (newZoneName, sessionName, existingZoneId) => {
+    try {
+      let zoneId = existingZoneId;
+
+      if (!zoneId) {
+        // Create a fresh zone
+        const newZone = await apiService.createZone({
+          name:       newZoneName,
+          risk_level: 'safe',
+          coordinates: [],
+        });
+        setZones((prev) => [...prev, newZone]);
+        zoneId = newZone.id;
+      }
+
+      const session = await apiService.startSession({ zone: zoneId, name: sessionName });
+      setSessions((prev) => [...prev, session]);
+      return { ok: true, session };
+    } catch (e) {
+      const msg = e.response?.data
+        ? JSON.stringify(e.response.data)
+        : e.message;
+      console.error('Start session failed:', msg);
+      return { ok: false, error: msg };
+    }
+  };
+
+  const handleEndSession = async (sessionId) => {
+    try {
+      await apiService.endSession(sessionId);
+      setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+    } catch (e) {
+      console.error('End session failed:', e);
+    }
+  };
+
   if (appLoading) {
     return (
       <div style={{
@@ -220,7 +275,15 @@ export default function App() {
       />
     ),
     workers:   <WorkersPage   workers={workers} />,
-    map:       <ZoneMapPage   workers={workers} zones={zones} />,
+    map: (
+      <ZoneMapPage
+        workers={workers}
+        zones={zones}
+        sessions={sessions}
+        onStartSession={handleStartSession}
+        onEndSession={handleEndSession}
+      />
+    ),
     alerts:    <AlertsPage    alerts={alerts}   onUpdateStatus={handleAlertStatus} />,
     incidents: (
       <IncidentsPage

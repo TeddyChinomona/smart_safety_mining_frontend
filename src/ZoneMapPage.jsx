@@ -1,23 +1,13 @@
 import { useState } from "react";
 import { COLORS } from "./utils/colors";
-import { statusColor, statusBg } from "./utils/statusHelpers";
+import { statusColor, statusBg, fmtTime } from "./utils/statusHelpers";
 import { StatusBadge } from "./ui";
-
-// ─── ZoneMapPage ──────────────────────────────────────────────────────────────
-// Props:
-//   workers - built worker objects (include locationX, locationY)
-//   zones   - raw zone objects from /api/zones/
-//             Each zone has: { id, name, risk_level, coordinates }
-//             coordinates = [[x,y], [x,y], ...] polygon points (same space as
-//             SensorEvent.location_x / location_y used by the geofencing service)
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const riskColor = (level) =>
   ({ safe: COLORS.safe, warning: COLORS.warning, unsafe: COLORS.danger }[level] ?? COLORS.offline);
 
-// Normalise zone polygons + worker positions to a 0-100 SVG viewBox.
-// Returns { svgZones, normPt } or null when there are no valid coordinates.
 function buildLayout(apiZones) {
   const valid = apiZones.filter(
     (z) => Array.isArray(z.coordinates) && z.coordinates.length >= 3
@@ -40,28 +30,236 @@ function buildLayout(apiZones) {
   ];
 
   const svgZones = valid.map((z) => {
-    const cxs   = z.coordinates.map((p) => p[0]);
-    const cys   = z.coordinates.map((p) => p[1]);
-    const zMinX = Math.min(...cxs), zMaxX = Math.max(...cxs);
-    const zMinY = Math.min(...cys), zMaxY = Math.max(...cys);
-    const [nx,  ny]  = normPt(zMinX, zMinY);
-    const [nx2, ny2] = normPt(zMaxX, zMaxY);
+    const svgPts = z.coordinates.map(([cx, cy]) => normPt(cx, cy));
+    // centroid for label
+    const cx = svgPts.reduce((s, p) => s + p[0], 0) / svgPts.length;
+    const cy = svgPts.reduce((s, p) => s + p[1], 0) / svgPts.length;
     return {
-      id:   z.id,
-      name: z.name,
-      risk: z.risk_level,
-      x: nx, y: ny,
-      w: Math.max(nx2 - nx, 2),
-      h: Math.max(ny2 - ny, 2),
+      id:     z.id,
+      name:   z.name,
+      risk:   z.risk_level,
+      points: svgPts,   // [[x,y], …] in SVG viewBox space
+      cx, cy,
     };
   });
 
   return { svgZones, normPt };
 }
 
-// ── Component ─────────────────────────────────────────────────────────────────
+// ─── SessionsPanel ────────────────────────────────────────────────────────────
 
-export function ZoneMapPage({ workers, zones = [] }) {
+const inputStyle = {
+  width: "100%", background: COLORS.bg,
+  border: `1px solid ${COLORS.border}`, borderRadius: 6,
+  padding: "8px 10px", color: COLORS.textPrimary,
+  fontSize: 12, outline: "none", boxSizing: "border-box",
+};
+
+const labelStyle = {
+  display: "block", color: COLORS.textSecondary,
+  fontSize: 10, fontWeight: 700, letterSpacing: "0.08em",
+  textTransform: "uppercase", marginBottom: 4,
+};
+
+function SessionsPanel({ zones, sessions, onStartSession, onEndSession }) {
+  const [showForm,     setShowForm]     = useState(false);
+  const [zoneChoice,   setZoneChoice]   = useState("");   // "existing-<id>" | "new"
+  const [newZoneName,  setNewZoneName]  = useState("");
+  const [sessionName,  setSessionName]  = useState("");
+  const [submitting,   setSubmitting]   = useState(false);
+  const [ending,       setEnding]       = useState({});
+  const [formError,    setFormError]    = useState("");
+
+  const zoneName = (zoneId) => zones.find((z) => z.id === zoneId)?.name || `Zone ${zoneId}`;
+
+  const handleSubmit = async () => {
+    setFormError("");
+    if (!zoneChoice) { setFormError("Select a zone or create a new one."); return; }
+    if (!sessionName.trim()) { setFormError("Enter a session name."); return; }
+    if (zoneChoice === "new" && !newZoneName.trim()) {
+      setFormError("Enter a name for the new zone."); return;
+    }
+
+    setSubmitting(true);
+    const existingId = zoneChoice.startsWith("existing-")
+      ? parseInt(zoneChoice.split("-")[1], 10)
+      : null;
+
+    const result = await onStartSession(
+      zoneChoice === "new" ? newZoneName.trim() : null,
+      sessionName.trim(),
+      existingId,
+    );
+
+    setSubmitting(false);
+    if (result?.ok) {
+      setShowForm(false);
+      setZoneChoice(""); setNewZoneName(""); setSessionName("");
+    } else {
+      setFormError(result?.error || "Failed to start session.");
+    }
+  };
+
+  const handleEnd = async (id) => {
+    setEnding((e) => ({ ...e, [id]: true }));
+    await onEndSession(id);
+    setEnding((e) => { const n = { ...e }; delete n[id]; return n; });
+  };
+
+  return (
+    <div style={{
+      background: COLORS.surface, border: `1px solid ${COLORS.border}`,
+      borderRadius: 8, padding: 16,
+    }}>
+      {/* Header */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 14 }}>
+          Mining Sessions
+        </div>
+        <button
+          onClick={() => { setShowForm(!showForm); setFormError(""); }}
+          style={{
+            background: showForm ? COLORS.border : COLORS.accentDim,
+            border: `1px solid ${showForm ? COLORS.border : COLORS.accent}55`,
+            borderRadius: 5, padding: "4px 10px",
+            color: showForm ? COLORS.textMuted : COLORS.accent,
+            fontSize: 11, fontWeight: 700, cursor: "pointer",
+          }}
+        >
+          {showForm ? "✕ Cancel" : "+ New"}
+        </button>
+      </div>
+
+      {/* Active session list */}
+      {sessions.length === 0 && !showForm && (
+        <div style={{
+          color: COLORS.textMuted, fontSize: 11,
+          textAlign: "center", padding: "12px 0",
+        }}>
+          No active sessions: start one to enable GPS fence tracking.
+        </div>
+      )}
+
+      {sessions.map((s) => (
+        <div
+          key={s.id}
+          style={{
+            background: COLORS.bg, borderRadius: 6, padding: "8px 10px",
+            marginBottom: 6,
+            border: `1px solid ${COLORS.safe}33`,
+            borderLeft: `3px solid ${COLORS.safe}`,
+            opacity: ending[s.id] ? 0.5 : 1, transition: "opacity 0.2s",
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{
+                color: COLORS.textPrimary, fontSize: 12, fontWeight: 600,
+                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              }}>
+                {s.name}
+              </div>
+              <div style={{ color: COLORS.textSecondary, fontSize: 10, marginTop: 2 }}>
+                {zoneName(s.zone)} · started {fmtTime(s.started_at)}
+              </div>
+            </div>
+            <button
+              onClick={() => handleEnd(s.id)}
+              disabled={!!ending[s.id]}
+              style={{
+                background: COLORS.dangerDim, border: `1px solid ${COLORS.danger}55`,
+                borderRadius: 4, padding: "3px 8px",
+                color: COLORS.danger, fontSize: 10, fontWeight: 700,
+                cursor: ending[s.id] ? "not-allowed" : "pointer",
+                marginLeft: 8, flexShrink: 0,
+              }}
+            >
+              End
+            </button>
+          </div>
+        </div>
+      ))}
+
+      {/* New session form */}
+      {showForm && (
+        <div style={{
+          marginTop: sessions.length ? 10 : 0,
+          borderTop: sessions.length ? `1px solid ${COLORS.border}` : "none",
+          paddingTop: sessions.length ? 10 : 0,
+        }}>
+          {formError && (
+            <div style={{
+              background: COLORS.dangerDim, border: `1px solid ${COLORS.danger}55`,
+              borderRadius: 4, padding: "6px 10px",
+              color: COLORS.danger, fontSize: 11, marginBottom: 10,
+            }}>
+              {formError}
+            </div>
+          )}
+
+          <div style={{ marginBottom: 8 }}>
+            <label style={labelStyle}>Zone</label>
+            <select
+              value={zoneChoice}
+              onChange={(e) => setZoneChoice(e.target.value)}
+              style={{ ...inputStyle, cursor: "pointer" }}
+            >
+              <option value="">select</option>
+              {zones.map((z) => (
+                <option key={z.id} value={`existing-${z.id}`}>{z.name}</option>
+              ))}
+              <option value="new">+ Create new zone</option>
+            </select>
+          </div>
+
+          {zoneChoice === "new" && (
+            <div style={{ marginBottom: 8 }}>
+              <label style={labelStyle}>New Zone Name</label>
+              <input
+                value={newZoneName}
+                onChange={(e) => setNewZoneName(e.target.value)}
+                placeholder="e.g. North Shaft"
+                style={inputStyle}
+              />
+            </div>
+          )}
+
+          <div style={{ marginBottom: 10 }}>
+            <label style={labelStyle}>Session Name</label>
+            <input
+              value={sessionName}
+              onChange={(e) => setSessionName(e.target.value)}
+              placeholder="e.g. Morning Shift A"
+              style={inputStyle}
+            />
+          </div>
+
+          <button
+            onClick={handleSubmit}
+            disabled={submitting}
+            style={{
+              width: "100%",
+              background: submitting ? COLORS.border : COLORS.safe,
+              border: "none", borderRadius: 6, padding: "8px",
+              color: submitting ? COLORS.textMuted : "#000",
+              fontSize: 12, fontWeight: 700,
+              cursor: submitting ? "not-allowed" : "pointer",
+            }}
+          >
+            {submitting ? "Starting…" : "Start Session"}
+          </button>
+          <div style={{ color: COLORS.textMuted, fontSize: 10, marginTop: 6, lineHeight: 1.4 }}>
+            GPS sensors must use this session ID in simulate_gps.py to update the fence boundary.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+export function ZoneMapPage({ workers, zones = [], sessions = [], onStartSession, onEndSession }) {
   const [hoveredZone,  setHoveredZone]  = useState(null);
   const [selectedZone, setSelectedZone] = useState(null);
 
@@ -73,14 +271,14 @@ export function ZoneMapPage({ workers, zones = [] }) {
     <div style={{ display: "grid", gridTemplateColumns: "1fr 300px", gap: 16 }}>
 
       {/* ── SVG Map panel ─────────────────────────────────────────────────── */}
-      <div
-        style={{
-          background: COLORS.surface, border: `1px solid ${COLORS.border}`,
-          borderRadius: 8, padding: 20,
-        }}
-      >
+      <div style={{
+        background: COLORS.surface, border: `1px solid ${COLORS.border}`,
+        borderRadius: 8, padding: 20,
+      }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 15 }}>Site Zone Map</div>
+          <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 15 }}>
+            Site Zone Map
+          </div>
           <div style={{ display: "flex", gap: 16 }}>
             {[["safe", "Safe"], ["warning", "Warning"], ["unsafe", "Danger"]].map(([level, label]) => (
               <div key={level} style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -88,15 +286,24 @@ export function ZoneMapPage({ workers, zones = [] }) {
                 <span style={{ color: COLORS.textSecondary, fontSize: 11 }}>{label}</span>
               </div>
             ))}
+            {/* Live indicator when a GPS session is active */}
+            {sessions.length > 0 && (
+              <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                <div style={{
+                  width: 6, height: 6, background: COLORS.safe, borderRadius: "50%",
+                }} />
+                <span style={{ color: COLORS.safe, fontSize: 10, fontWeight: 700 }}>
+                  LIVE FENCE
+                </span>
+              </div>
+            )}
           </div>
         </div>
 
-        <div
-          style={{
-            position: "relative", background: COLORS.bg,
-            borderRadius: 8, overflow: "hidden", border: `1px solid ${COLORS.border}`,
-          }}
-        >
+        <div style={{
+          position: "relative", background: COLORS.bg,
+          borderRadius: 8, overflow: "hidden", border: `1px solid ${COLORS.border}`,
+        }}>
           <svg viewBox="0 0 100 100" width="100%" style={{ display: "block" }}>
             {/* Grid */}
             {[20, 40, 60, 80].map((v) => (
@@ -108,20 +315,25 @@ export function ZoneMapPage({ workers, zones = [] }) {
 
             {/* No-coordinates fallback */}
             {!layout && (
-              <text
-                x="50" y="50" textAnchor="middle" dominantBaseline="middle"
-                fill={COLORS.textMuted} fontSize="4"
-              >
-                Configure zone coordinates to see the map
+              <text x="50" y="46" textAnchor="middle" dominantBaseline="middle"
+                fill={COLORS.textMuted} fontSize="3.5">
+                Start a session and run simulate_gps.py
+              </text>
+            )}
+            {!layout && (
+              <text x="50" y="54" textAnchor="middle" dominantBaseline="middle"
+                fill={COLORS.textMuted} fontSize="3">
+                to see the live geofence boundary here
               </text>
             )}
 
-            {/* Zone rectangles */}
+            {/* Zone polygons: rendered from actual convex hull, not bounding boxes */}
             {layout && layout.svgZones.map((z) => {
               const c      = riskColor(z.risk);
               const isHov  = hoveredZone  === z.id;
               const isSel  = selectedZone === z.id;
               const isDash = z.risk === "unsafe";
+              const ptStr  = z.points.map((p) => p.join(",")).join(" ");
               return (
                 <g
                   key={z.id}
@@ -130,16 +342,15 @@ export function ZoneMapPage({ workers, zones = [] }) {
                   onClick={() => setSelectedZone(isSel ? null : z.id)}
                   style={{ cursor: "pointer" }}
                 >
-                  <rect
-                    x={z.x} y={z.y} width={z.w} height={z.h}
+                  <polygon
+                    points={ptStr}
                     fill={`${c}${isHov || isSel ? "33" : "18"}`}
                     stroke={c}
                     strokeWidth={isSel ? "0.8" : "0.4"}
                     strokeDasharray={isDash ? "2,1" : "none"}
-                    rx="1"
                   />
                   <text
-                    x={z.x + z.w / 2} y={z.y + z.h / 2 - 2}
+                    x={z.cx} y={z.cy}
                     textAnchor="middle" fill={c} fontSize="3.5" fontWeight="700"
                   >
                     {z.name}
@@ -148,7 +359,7 @@ export function ZoneMapPage({ workers, zones = [] }) {
               );
             })}
 
-            {/* Worker dots */}
+            {/* Worker dots: position from nearest GPS sensor's last fix */}
             {layout && workers.map((w) => {
               if (w.locationX == null || w.locationY == null) return null;
               const [cx, cy] = layout.normPt(w.locationX, w.locationY);
@@ -177,21 +388,27 @@ export function ZoneMapPage({ workers, zones = [] }) {
 
         <div style={{ marginTop: 12, color: COLORS.textMuted, fontSize: 11, textAlign: "center" }}>
           {layout
-            ? "Dots show worker positions · Click a zone for details"
-            : "Add zone coordinates via the API to enable the visual map"}
+            ? `Polygon hull from GPS readings · ${sessions.length > 0 ? "updates every 3 s" : "static"} · click a zone for details`
+            : "Start a session and run simulate_gps.py to populate the live fence boundary"}
         </div>
       </div>
 
       {/* ── Side panel ────────────────────────────────────────────────────── */}
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
 
+        {/* Session management */}
+        <SessionsPanel
+          zones={zones}
+          sessions={sessions}
+          onStartSession={onStartSession}
+          onEndSession={onEndSession}
+        />
+
         {/* Zone list */}
-        <div
-          style={{
-            background: COLORS.surface, border: `1px solid ${COLORS.border}`,
-            borderRadius: 8, padding: 16,
-          }}
-        >
+        <div style={{
+          background: COLORS.surface, border: `1px solid ${COLORS.border}`,
+          borderRadius: 8, padding: 16,
+        }}>
           <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 14, marginBottom: 14 }}>
             Zone Overview
           </div>
@@ -205,6 +422,7 @@ export function ZoneMapPage({ workers, zones = [] }) {
               const ww    = workersInZone(z.name);
               const c     = riskColor(z.risk_level);
               const isSel = selectedZone === z.id;
+              const hasCoords = Array.isArray(z.coordinates) && z.coordinates.length >= 3;
               return (
                 <div
                   key={z.id}
@@ -225,18 +443,19 @@ export function ZoneMapPage({ workers, zones = [] }) {
                   </div>
                   <div style={{ color: COLORS.textSecondary, fontSize: 11, marginTop: 3 }}>
                     {ww.length} worker{ww.length !== 1 ? "s" : ""} in zone
+                    {hasCoords && (
+                      <span style={{ color: COLORS.safe, marginLeft: 6 }}>· fence active</span>
+                    )}
                   </div>
 
                   {isSel && ww.length > 0 && (
                     <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 4 }}>
                       {ww.map((worker) => (
                         <div key={worker.id} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <div
-                            style={{
-                              width: 6, height: 6, borderRadius: "50%",
-                              background: statusColor(worker.status),
-                            }}
-                          />
+                          <div style={{
+                            width: 6, height: 6, borderRadius: "50%",
+                            background: statusColor(worker.status),
+                          }} />
                           <span style={{ color: COLORS.textSecondary, fontSize: 11 }}>{worker.name}</span>
                           <StatusBadge status={worker.status} />
                         </div>
@@ -250,28 +469,26 @@ export function ZoneMapPage({ workers, zones = [] }) {
         </div>
 
         {/* Legend */}
-        <div
-          style={{
-            background: COLORS.surface, border: `1px solid ${COLORS.border}`,
-            borderRadius: 8, padding: 16,
-          }}
-        >
+        <div style={{
+          background: COLORS.surface, border: `1px solid ${COLORS.border}`,
+          borderRadius: 8, padding: 16,
+        }}>
           <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 14, marginBottom: 12 }}>
             Zone Legend
           </div>
           <div style={{ fontSize: 12, color: COLORS.textSecondary, lineHeight: 1.8 }}>
-            <div>🟢 <strong style={{ color: COLORS.textPrimary }}>Safe</strong> — Normal operations</div>
-            <div>🟡 <strong style={{ color: COLORS.textPrimary }}>Warning</strong> — Elevated risk, monitor</div>
-            <div>🔴 <strong style={{ color: COLORS.textPrimary }}>Unsafe</strong> — Restricted access</div>
-            <div
-              style={{
-                marginTop: 10, borderTop: `1px solid ${COLORS.border}`, paddingTop: 10,
-              }}
-            >
+            <div><strong style={{ color: COLORS.textPrimary }}>Safe</strong>Normal operations</div>
+            <div><strong style={{ color: COLORS.textPrimary }}>Warning</strong>Elevated risk, monitor</div>
+            <div><strong style={{ color: COLORS.textPrimary }}>Unsafe</strong>Restricted access</div>
+            <div style={{
+              marginTop: 10, borderTop: `1px solid ${COLORS.border}`, paddingTop: 10,
+            }}>
+              Polygon boundary is the convex hull of all active GPS sensor readings for the session.
               Pulsing dots indicate workers in emergency status.
             </div>
           </div>
         </div>
+
       </div>
     </div>
   );

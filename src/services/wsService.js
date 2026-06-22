@@ -1,9 +1,10 @@
-import { WS_URL, BASE_URL } from './api';  // was '../api' — both files live in src/services/
+import { WS_URL, BASE_URL } from './api';
 import axios from 'axios';
 
-// Manages both WebSocket connections with JWT auth and auto-reconnect.
+// Manages three WebSocket connections with JWT auth and auto-reconnect.
 //   sensor  → ws/sensor-events/
 //   worker  → ws/worker-statuses/
+//   zone    → ws/zone-updates/   ← live geofence boundary from GPS task
 //
 // The backend consumer reads ?token=<access_token> from the query string
 // and validates it with simplejwt before accepting the connection.
@@ -52,7 +53,7 @@ class WsService {
       this._sockets[key] = ws;
 
       ws.onmessage = (e) => {
-        try { onMsg(JSON.parse(e.data)); } catch { /* malformed frame — ignore */ }
+        try { onMsg(JSON.parse(e.data)); } catch { /* malformed frame: ignore */ }
       };
 
       ws.onerror = () => {
@@ -60,7 +61,7 @@ class WsService {
       };
 
       ws.onclose = (ev) => {
-        if (ev.code === 1000) return; // intentional clean disconnect — do not retry
+        if (ev.code === 1000) return; // intentional clean disconnect do not retry
 
         if (ev.code === 4001) {
           // JWT was rejected by the consumer.
@@ -71,7 +72,7 @@ class WsService {
               window.dispatchEvent(new Event('auth:logout'));
               return;
             }
-            // Token refreshed — reconnect after a short pause
+            // Token refreshed: reconnect after a short pause
             this._timers[key] = setTimeout(
               () => this._open(key, path, this._callbacks[key]),
               1000,
@@ -95,9 +96,10 @@ class WsService {
     }
   }
 
-  connect(onSensor, onWorker) {
+  connect(onSensor, onWorker, onZone) {
     this._open('sensor', '/ws/sensor-events/',   onSensor);
     this._open('worker', '/ws/worker-statuses/', onWorker);
+    if (onZone) this._open('zone', '/ws/zone-updates/', onZone);
   }
 
   disconnect() {

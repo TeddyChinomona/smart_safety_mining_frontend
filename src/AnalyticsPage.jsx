@@ -64,30 +64,30 @@ export function AnalyticsPage({ workers = [] }) {
   }, [workers]);
 
   const last    = (arr) => arr.length > 0 ? arr[arr.length - 1] : null;
-  const display = (v, dec = 1) => (v != null ? v.toFixed(dec) : "—");
+  const display = (v, dec = 1) => (v != null ? v.toFixed(dec) : "");
 
   const { gas: gasH, temp: tempH, hr: hrH } = hist.current;
 
   const streams = [
     {
-      label:   "Fleet Avg — Gas (CH₄)",
+      label:   "Fleet Avg: Gas (CH₄)",
       data:    gasH,
       color:   COLORS.danger,
       current: display(last(gasH)),
       unit:    "ppm",
     },
     {
-      label:   "Fleet Avg — Temperature",
+      label:   "Fleet Avg: Temperature",
       data:    tempH,
       color:   COLORS.warning,
       current: display(last(tempH)),
       unit:    "°C",
     },
     {
-      label:   "Fleet Avg — Heart Rate",
+      label:   "Fleet Avg: Heart Rate",
       data:    hrH,
       color:   COLORS.accent,
-      current: last(hrH) != null ? String(Math.round(last(hrH))) : "—",
+      current: last(hrH) != null ? String(Math.round(last(hrH))) : "",
       unit:    "bpm",
     },
   ];
@@ -108,7 +108,7 @@ export function AnalyticsPage({ workers = [] }) {
         label:    `Critical Risk: ${w.name}`,
         severity: "danger",
         insight:  `Decision-tree classifier flagged abnormal vitals${
-          details ? ` — ${details}` : ""
+          details ? `  ${details}` : ""
         }. Supervisor dispatch required.`,
         zone: w.zone,
       });
@@ -129,7 +129,7 @@ export function AnalyticsPage({ workers = [] }) {
       aiPatterns.push({
         label:    `Elevated Reading: ${w.name}`,
         severity: "warning",
-        insight:  `Readings above baseline — gas ${w.gas} ppm, temp ${w.temp}°C, HR ${w.heartRate} bpm. Monitor closely.`,
+        insight:  `Readings above baseline: gas ${w.gas} ppm, temp ${w.temp}°C, HR ${w.heartRate} bpm. Monitor closely.`,
         zone: w.zone,
       });
     }
@@ -152,7 +152,7 @@ export function AnalyticsPage({ workers = [] }) {
             marginBottom: 16,
           }}
         >
-          Awaiting WebSocket data — sparklines populate once workers come online.
+          Awaiting WebSocket data: sparklines populate once workers come online.
         </div>
       )}
 
@@ -182,7 +182,7 @@ export function AnalyticsPage({ workers = [] }) {
               </span>
               <span style={{ color: s.color, fontSize: 18, fontWeight: 800 }}>
                 {s.current}
-                {s.current !== "—" && (
+                {s.current !== "" && (
                   <span style={{ fontSize: 11, fontWeight: 400, marginLeft: 2 }}>{s.unit}</span>
                 )}
               </span>
@@ -209,7 +209,7 @@ export function AnalyticsPage({ workers = [] }) {
           }}
         >
           <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 14, marginBottom: 14 }}>
-            Live Sensor Readings — All Workers
+            Live Sensor Readings: All Workers
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 10 }}>
             {workers.filter((w) => w.status !== "offline").map((w) => (
@@ -249,7 +249,7 @@ export function AnalyticsPage({ workers = [] }) {
                 </div>
                 {!w.helmet && (
                   <div style={{ marginTop: 6, color: COLORS.danger, fontSize: 11, fontWeight: 700 }}>
-                    ⚠ Helmet not worn
+                    Helmet not worn
                   </div>
                 )}
               </div>
@@ -276,7 +276,7 @@ export function AnalyticsPage({ workers = [] }) {
               fontSize: 15,
             }}
           >
-            🧠
+          
           </div>
           <div style={{ color: COLORS.textPrimary, fontWeight: 700, fontSize: 14 }}>
             AI Pattern Detection
@@ -290,8 +290,8 @@ export function AnalyticsPage({ workers = [] }) {
         {aiPatterns.length === 0 ? (
           <div style={{ color: COLORS.textMuted, fontSize: 13, textAlign: "center", padding: "24px 0" }}>
             {noLiveData
-              ? "No sensor data — patterns will appear once workers come online."
-              : "No anomalies detected — all workers within normal parameters."}
+              ? "No sensor data: patterns will appear once workers come online."
+              : "No anomalies detected: all workers within normal parameters."}
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>

@@ -111,7 +111,7 @@ export function ReportsPage({ alerts = [], incidents = [], zones = [], workers =
           borderRadius: 6, padding: "8px 14px",
           color: COLORS.warning, fontSize: 12, marginBottom: 16,
         }}>
-          Could not reach analytics endpoint — showing live counts from this session.
+          Could not reach analytics endpoint: showing live counts from this session.
         </div>
       )}
 
@@ -219,7 +219,7 @@ export function ReportsPage({ alerts = [], incidents = [], zones = [], workers =
 
         {workerRisk.length === 0 ? (
           <div style={{ color: COLORS.textMuted, fontSize: 12, textAlign: "center", padding: "20px 0" }}>
-            No worker data — WebSocket data pending
+            No worker data: WebSocket data pending
           </div>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>

@@ -14,7 +14,7 @@ export function DashboardPage({ alerts, workers, zones = [], onNavigate }) {
   const fleetAvg = (key) =>
     activeWorkers.length > 0
       ? (activeWorkers.reduce((s, w) => s + (w[key] || 0), 0) / activeWorkers.length).toFixed(1)
-      : "—";
+      : "";
 
   const avgGas  = fleetAvg("gas");
   const avgTemp = fleetAvg("temp");
@@ -85,13 +85,13 @@ export function DashboardPage({ alerts, workers, zones = [], onNavigate }) {
         />
         <StatCard
           label="Avg. Gas Level"
-          value={avgGas !== "—" ? `${avgGas}` : "—"}
+          value={avgGas !== "" ? `${avgGas}` : ""}
           sub="ppm CH₄  (safe: <50)"
           color={parseFloat(avgGas) > 40 ? COLORS.warning : COLORS.safe}
         />
         <StatCard
           label="Avg. Temp"
-          value={avgTemp !== "—" ? `${avgTemp}°C` : "—"}
+          value={avgTemp !== "" ? `${avgTemp}°C` : ""}
           sub="ambient  (safe: <32°C)"
           color={parseFloat(avgTemp) > 30 ? COLORS.warning : COLORS.safe}
         />
@@ -119,7 +119,7 @@ export function DashboardPage({ alerts, workers, zones = [], onNavigate }) {
 
           {workers.length === 0 ? (
             <div style={{ color: COLORS.textMuted, fontSize: 13, textAlign: "center", padding: "30px 0" }}>
-              No workers online — WebSocket data pending
+              No workers online: WebSocket data pending
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
